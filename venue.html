@@ -1,8 +1,23 @@
 <div data-role="page" id="venue">
   <div data-role="header" data-add-back-btn="true">
-    <h1>Under Development…</h1>
+    <h1 class="venue-header_name">Venue Data</h1>
   </div>
   <div data-role="content">
-    <h1>…</h1>
+    <h1 class="venue-header_name">…</h1>
+    <ul id="venue-categories" data-role="listview" data-inset="true"></ul>
+    <ul id="venue-tips" data-role="listview" data-inset="true"></ul>
+    <ul id="venue-maps" data-role="listview" data-inset="true">
+      <li data-role="list-divider">Maps</li>
+      <li>
+        <div id="venue-maps-container"></div>
+        <a id="venue-maps-link" href="#" target="_blank" class="ui-btn ui-btn-icon-left ui-icon-location">
+          Open in Maps
+        </a>
+      </li>
+    </ul>
+    <ul data-role="listview" data-inset="true">
+      <li data-role="list-divider">Address</li>
+      <li id="venue-addresses" class="no-wrap"></li>
+    </ul>
   </div>
 </div>

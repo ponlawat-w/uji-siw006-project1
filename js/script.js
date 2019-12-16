@@ -1,4 +1,5 @@
 const foursquareV = '20191212';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 $(document).ready(() => {
   const data = {
@@ -11,6 +12,11 @@ $(document).ready(() => {
       markersGroup: null,
       venues: [],
       popupShown: false
+    },
+    venue: {
+      selectedVenue: null,
+      tips: [],
+      map: null
     }
   };
 
@@ -24,6 +30,12 @@ $(document).ready(() => {
       return [];
     }
     return group.items.map(i => i.venue);
+  };
+
+  const getFullDateTimeFromUnixSeconds = timestamp => {
+    const date = new Date(timestamp * 1000);
+    return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`
+      + ` ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
 
   const creatUrl = (baseUrl, params = {}) =>
@@ -120,7 +132,32 @@ $(document).ready(() => {
     });
   });
 
-  const createListItem = venue => $(`<li><a href="venue.html?id=${venue.id}">`
+  const getVenueTips = (venueId) => new Promise((resolve, reject) => {
+    const success = response => {
+      if (response.meta.code !== 200) {
+        reject(response.meta.code);
+        return;
+      }
+      resolve(response.response.tips.items);
+    };
+
+    const error = error => {
+      console.error(error);
+      reject(error);
+    };
+
+    $.ajax({
+      url: createApiUrl(`https://api.foursquare.com/v2/venues/${venueId}/tips`, {
+        sort: 'popular',
+        limit: 1
+      }),
+      method: 'GET',
+      success: success,
+      error: error
+    });
+  });
+
+  const createListItem = venue => $(`<li><a href="venue.html?id=${encodeURIComponent(venue.id)}">`
     + `<img src="${getVenueIcon(venue, 88, false)}" class="listview-img">`
     + `<h3>${venue.name}</h3>`
     + `<p><strong>${venue.categories.map(c => c.name).join(', ')}</strong></p>`
@@ -147,13 +184,18 @@ $(document).ready(() => {
     accessToken: CONFIG.MAPBOX_ACCESS_TOKEN
   });
 
+  const getCategoryIcon = (category, size = 32, bg = false) =>
+    category.icon.prefix
+    + (bg ? 'bg_' : '')
+    + size.toString()
+    + category.icon.suffix;
+
   const getVenueIcon = (venue, size = 32, bg = false) => {
     const primaryCategories = venue.categories.filter(c => c.primary);
     if (!primaryCategories.length) {
       return null;
     }
-    return primaryCategories[0].icon.prefix + (bg ? 'bg_' : '') +
-      size.toString() + primaryCategories[0].icon.suffix;
+    return getCategoryIcon(primaryCategories[0], size, bg);
   };
 
   const getVenueMarker = venue => {
@@ -166,7 +208,7 @@ $(document).ready(() => {
       })
     });
     marker.bindPopup(`<h3>${venue.name}</h3>`
-      + `<a href="venue.html?id=${venue.id}">View Detail »</a>`, {
+      + `<a href="venue.html?id=${encodeURIComponent(venue.id)}">View Detail »</a>`, {
       maxWidth: 200
     });
     return marker;
@@ -199,6 +241,94 @@ $(document).ready(() => {
     updateMarkers();
   };
 
+  const getUrlParams = () => {
+    let search = window.location.search;
+    if (!search) {
+      return {};
+    }
+    search = search.substring(1);
+    const obj = {};
+    $.each(search.split('&'), (idx, paramStr) => {
+      const paramStrSplited = paramStr.split('=');
+      if (paramStrSplited.length < 2) {
+        return;
+      }
+
+      obj[decodeURIComponent(paramStrSplited[0])] = decodeURIComponent(paramStrSplited[1]);
+    });
+
+    return obj;
+  };
+
+  const searchLocalVenue = id => {
+    const venuesFromGlobal = getRecommendedVenues(data.global.exploreResults).filter(v => v.id === id);
+    if (venuesFromGlobal.length) {
+      return venuesFromGlobal[0];
+    }
+    const venuesFromMaps = data.map.venues.filter(v => v.id === id);
+    if (venuesFromMaps.length) {
+      return venuesFromMaps[0];
+    }
+    return null;
+  };
+
+  const propagateVenueCategories = () => {
+    const $categories = $('#venue-categories');
+    $categories.html('');
+
+    $categories.append($('<li>').attr('data-role', 'list-divider').html('Categories'));
+    $.each(data.venue.selectedVenue.categories, (index, category) => {
+      $categories.append('<li>'
+        + `<img src="${getCategoryIcon(category, 64)}" class="ui-li-icon category-img">`
+        + ` ${category.name}`
+        + '</li>');
+    });
+
+    $categories.listview('refresh');
+  };
+
+  const propagateVenueTips = () => {
+    const $tips = $('#venue-tips');
+    if (!data.venue.tips.length) {
+      $tips.hide();
+      return;
+    }
+    $tips.html('');
+
+    $tips.append($('<li>').attr('data-role', 'list-divider').html('Tips'));
+    $.each(data.venue.tips, (index, tip) => {
+      const fullName = tip.user.firstName + (tip.user.lastName ? ' ' + tip.user.lastName : '');
+      const dateTime = getFullDateTimeFromUnixSeconds(tip.createdAt);
+      $tips.append('<li>'
+        + `<h3 class="no-wrap">${tip.text}</h3>`
+        + `<p class="text-right"><small>${fullName} - ${dateTime}</small></p>`
+        + '</li>');
+    });
+
+    $tips.show();
+    $tips.listview('refresh');
+  };
+
+  const propagateVenueAddresses = () => {
+    const $addresses = $('#venue-addresses');
+    $addresses.html(data.venue.selectedVenue.location.formattedAddress.join(', '));
+  };
+
+  const propagateVenueInformation = () => {
+    if (!data.venue.selectedVenue) {
+      return;
+    }
+    $('.venue-header_name').html(data.venue.selectedVenue.name);
+    $('#venue-maps-link').attr('href', creatUrl('http://maps.apple.com/', {
+      q: `${data.venue.selectedVenue.location.lat},${data.venue.selectedVenue.location.lng}`,
+      z: 14
+    }));
+
+    propagateVenueCategories();
+    propagateVenueTips();
+    propagateVenueAddresses();
+  };
+
   const pageShowMap = () => {
     data.map.map = L.map('map-map', {
       center: [data.global.myLocation.lat, data.global.myLocation.lng],
@@ -222,8 +352,42 @@ $(document).ready(() => {
 
     data.map.map = null;
     data.map.markersGroup = null;
-    data.map.venues = [];
     data.map.popupShown = false;
+  };
+
+  const pageShowVenue = () => {
+    data.venue.map = L.map('venue-maps-container', {
+      center: [data.venue.selectedVenue.location.lat, data.venue.selectedVenue.location.lng],
+      zoom: 14
+    });
+    data.venue.map.addLayer(getDefaultMapLayer());
+    data.venue.map.addLayer(L.marker([data.venue.selectedVenue.location.lat, data.venue.selectedVenue.location.lng]));
+  };
+
+  const pageBeforeShowVenue = async() => {
+    const params = getUrlParams();
+    if (!params.id) {
+      $.mobile.changePage('index.html');
+    }
+
+    data.venue.selectedVenue = searchLocalVenue(params.id);
+    data.venue.tips = [];
+
+    $.mobile.loading('show');
+    try {
+      data.venue.tips = await getVenueTips(data.venue.selectedVenue.id);
+      $.mobile.loading('hide');
+    } catch (error) {
+      console.error(error);
+      $.mobile.loading('hide');
+    }
+
+    propagateVenueInformation();
+  };
+
+  const pageBeforeHideVenue = () => {
+    data.venue.map.remove();
+    data.venue.map = null;
   };
 
   const init = async() => {
@@ -241,6 +405,9 @@ $(document).ready(() => {
 
   $(document).on('pageshow', '#map', pageShowMap);
   $(document).on('pagebeforehide', '#map', pageBeforeHideMap);
+  $(document).on('pagebeforeshow', '#venue', pageBeforeShowVenue);
+  $(document).on('pageshow', '#venue', pageShowVenue);
+  $(document).on('pagebeforehide', '#venue', pageBeforeHideVenue);
 
   init();
 });
