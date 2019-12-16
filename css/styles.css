@@ -1,0 +1,12 @@
+.listview-img {
+  filter: invert(0.8);
+}
+
+.leaflet-popup {
+  text-shadow: none !important;
+}
+
+#map-map {
+  width: 100%;
+  height: 50vh;
+}
