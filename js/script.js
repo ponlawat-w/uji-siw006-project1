@@ -38,7 +38,7 @@ $(document).ready(() => {
       + ` ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   };
 
-  const creatUrl = (baseUrl, params = {}) =>
+  const createUrl = (baseUrl, params = {}) =>
     `${baseUrl}?${Object.keys(params).map(key => `${key}=${encodeURIComponent(params[key])}`).join('&')}`;
 
   const createApiUrl = (baseUrl, params = {}) => {
@@ -49,7 +49,7 @@ $(document).ready(() => {
       v: foursquareV
     }
 
-    return creatUrl(baseUrl, params);
+    return createUrl(baseUrl, params);
   };
 
   const getDefaultRequestHeader = () => ({
@@ -69,7 +69,7 @@ $(document).ready(() => {
     };
 
     $.ajax({
-      url: creatUrl('https://api.ipgeolocation.io/ipgeo', {apiKey: CONFIG.IP_GEOLOCATION_API_KEY}),
+      url: createUrl('https://api.ipgeolocation.io/ipgeo', {apiKey: CONFIG.IP_GEOLOCATION_API_KEY}),
       method: 'GET',
       success: success,
       error: failed
@@ -207,7 +207,10 @@ $(document).ready(() => {
         shadowSize: [32, 32]
       })
     });
-    marker.bindPopup(`<h3>${venue.name}</h3>`
+    const primaryCategories = venue.categories.filter(c => c.primary);
+    marker.bindPopup(`<h3>${venue.name}<br>`
+      + (primaryCategories.length ? `<small>${primaryCategories[0].name}</small>` : '')
+      + '</h3>'
       + `<a href="venue.html?id=${encodeURIComponent(venue.id)}">View Detail »</a>`, {
       maxWidth: 200
     });
@@ -232,12 +235,30 @@ $(document).ready(() => {
     data.map.map.addLayer(data.map.markersGroup);
   };
 
+  const updateMapUrl = (category, sw, ne) => {
+    const params = {
+      c: category,
+      sw: `${sw.lat},${sw.lng}`,
+      ne: `${ne.lat},${ne.lng}`
+    };
+    $.mobile.navigate.navigator.squash(createUrl(window.location.href.split('?')[0], params));
+  };
+
   const updateMapExplore = async() => {
+    $.mobile.loading('show');
     const category = $('#map-category').val();
     const mapBounds = data.map.map.getBounds();
     const sw = mapBounds.getSouthWest();
     const ne = mapBounds.getNorthEast();
-    data.map.venues = await searchVenues(category, sw, ne);
+    updateMapUrl(category, sw, ne);
+    try {
+      data.map.venues = await searchVenues(category, sw, ne);
+      $.mobile.loading('hide');
+    } catch (error) {
+      data.map.venues = [];
+      console.error(error);
+      $.mobile.loading('hide');
+    }
     updateMarkers();
   };
 
@@ -319,7 +340,7 @@ $(document).ready(() => {
       return;
     }
     $('.venue-header_name').html(data.venue.selectedVenue.name);
-    $('#venue-maps-link').attr('href', creatUrl('http://maps.apple.com/', {
+    $('#venue-maps-link').attr('href', createUrl('http://maps.apple.com/', {
       q: `${data.venue.selectedVenue.location.lat},${data.venue.selectedVenue.location.lng}`,
       z: 14
     }));
@@ -330,10 +351,22 @@ $(document).ready(() => {
   };
 
   const pageShowMap = () => {
+    const params = getUrlParams();
     data.map.map = L.map('map-map', {
       center: [data.global.myLocation.lat, data.global.myLocation.lng],
       zoom: 14
     });
+
+    if (params.sw && params.ne) {
+      const sw = params.sw.split(',').map(x => parseFloat(x));
+      const ne = params.ne.split(',').map(x => parseFloat(x));
+      const bounds = L.latLngBounds(L.latLng(sw[0], sw[1]), L.latLng(ne[0], ne[1]));
+      data.map.map.fitBounds(bounds);
+    }
+
+    if (params.c) {
+      $('#map-category').val(params.c).selectmenu('refresh');
+    }
 
     data.map.map.addLayer(getDefaultMapLayer());
 
